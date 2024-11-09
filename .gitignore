@@ -11,12 +11,10 @@
 [Dd]ebug/
 [Bb]in/
 [Oo]bj/
-EncodeMap/Release/
-EncodeMap/release/
-Project1/Release/
-Project1/release/
-War3 multi/Release/
-War3 multi/release/
+LG_NextGen/Release/
+LG_NextGen/release/
+LG_NextGen/Ddebug/
+LG_NextGen/debug/
 
 # Enable "build/" folder in the NuGet Packages folder since NuGet packages use it for MSBuild targets
 !packages/*/build/
