@@ -5,7 +5,6 @@
 #endif
 
 #include <windows.h>
-#include <winhttp.h>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -15,12 +14,14 @@
 #include <atlenc.h>
 #include <array>
 #include <sstream>
+#include <wininet.h>
 
 #include "XorStr.hpp"
+//#include "crow_all.h"
 
 #pragma comment(lib, "Storm.lib")
 #pragma comment(lib, "urlmon.lib")
 #pragma comment(lib, "Version.lib")
-#pragma comment(lib, "winhttp.lib")
+#pragma comment(lib, "wininet.lib")
 
 using namespace std;

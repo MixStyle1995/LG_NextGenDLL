@@ -1,5 +1,7 @@
 #include "Header.h"
 
+#define IsKeyPressed(CODE) (GetAsyncKeyState(CODE) & 0x8000) > 0
+
 void LogItem(const char* Msg...)
 {
 	va_list arguments;
@@ -115,10 +117,25 @@ DWORD GetDllOffsetEx(int num, int offset, int offset2)
 
 W3_FUNC(GAME, ChatSendEvent, int, __fastcall, (int GlobalGlueObjAddr, int zero, int event_vtable), 0x2FD240, 0x2FC700)
 W3_FUNC(GAME, GameChatSetState, int, __fastcall, (int chat, int unused, BOOL IsOpened), 0x341FA0, 0x341460)
+W3_FUNC(GAME, SetCamera, void, __thiscall, (int a1, int whichField, float Dis, float duration, int a5), 0x3065A0, 0x305A60)
+
 W3_VAR(GAME, W3XGlobalClass, int*, 0xACBDD8, 0xAB4F80)
 W3_VAR(GAME, IsChatBoxOpen, bool, 0xAE8450, 0xAD15F0)
 W3_VAR(GAME, GlobalGlueObj, int, 0xAE54CC, 0xACE66C)
 W3_VAR(GAME, EventVtable, int, 0xAB0CD0, 0xA9ACB0)
+
+streampos fileSize(const char* filePath)
+{
+	streampos fsize = 0;
+	ifstream file(filePath, std::ios::binary);
+
+	fsize = file.tellg();
+	file.seekg(0, std::ios::end);
+	fsize = file.tellg() - fsize;
+	file.close();
+
+	return fsize;
+}
 
 void CreateFolder(string path)
 {
@@ -188,7 +205,6 @@ void __stdcall SendMessageToChat(const char* msg, ...)
 
 	BlockInput(TRUE);
 
-
 	if (*GAME_IsChatBoxOpen)
 	{
 		GAME_GameChatSetState(ChatOffset, 0, 0);
@@ -251,18 +267,16 @@ namespace MPQ
 	}
 }
 
-int checkerror = 2;
+HANDLE MPQHandleEx = 0;
 unsigned long __stdcall DowFile(LPVOID)
 {
 	string szFile = "LG_NextGen\\LG_Model.mpq";
 	string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_Model.mpq";
 	HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
 	if (res != S_OK)
-		checkerror = 0;
+		return 0;
 
-	HANDLE MPQHandleEx = 0;
-	if (!MPQ::OpenArchive(szFile, &MPQHandleEx))
-		checkerror = 1;
+	MPQ::OpenArchive(szFile, &MPQHandleEx);
 
 	return 0;
 }
@@ -271,25 +285,42 @@ int __stdcall LG_DowloadModel(int)
 {
 	CreateFolder("LG_NextGen\\");
 	string szFile = "LG_NextGen\\LG_Model.mpq";
+
 	if (!FileExists(szFile))
 	{
 		CloseHandle(CreateThread(0, 0, DowFile, 0, 0, 0));
 	}
+	else
+	{
+		MPQ::OpenArchive(szFile, &MPQHandleEx);
+		auto nSizeFile = fileSize(szFile.c_str());
+		if (nSizeFile < 7777777)
+		{
+			if (MPQHandleEx)
+			{
+				SFileCloseArchive(MPQHandleEx);
+				MPQHandleEx = 0;
+			}
 
-	HANDLE MPQHandleEx = 0;
-	if (!MPQ::OpenArchive(szFile, &MPQHandleEx))
-		checkerror = 1;
+			CloseHandle(CreateThread(0, 0, DowFile, 0, 0, 0));
+		}
+	}
 
-	return checkerror;
+	return 1;
 }
 
 string pszname;
 unsigned long __stdcall LG_DowloadDataThread(LPVOID)
 {
 	string szFile = "LG_NextGen\\SaveCode_" + pszname + ".txt";
+
+	if (FileExists("LG_NextGen\\SaveCode.txt"))
+		rename("LG_NextGen\\SaveCode.txt", szFile.c_str());
+
 	if (!FileExists(szFile))
 	{
-		string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_NextGenData/" + string("SaveCode_") + pszname + ".txt";
+		//string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_NextGenData/" + string("SaveCode_") + pszname + ".txt";
+		string strUrl = "http://160.187.146.137/LG_NextGen/" + string("SaveCode_") + pszname + ".txt";
 		HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
 		if (res != S_OK)
 			return 0;
@@ -305,178 +336,144 @@ int __stdcall LG_DowloadData(char* szName)
 	return 1;
 }
 
-std::string readFile(const std::string& filePath) 
+void uploadFileToServer(const char *filename, const char *filepath)
 {
-	std::ifstream file(filePath);
-	std::ostringstream oss;
-	oss << file.rdbuf();
-	return oss.str();
-}
+	const char *type = "text/plain";
+	char boundary[] = "---------------------------1BsFuekqmX38dmi1e82t4XFLWRKJSY9MPL"; 
+	char nameForm[] = "uploaded_file";
+	char iaddr[] = "160.187.146.137";
+	char url[] = "upload.php";
+	char conn_type[] = "Connection: close";
 
-string encodeBase64(const string& data) 
-{
-	DWORD encodedSize = 0;
-	if (Base64EncodeGetRequiredLength(data.size(), ATL_BASE64_FLAG_NOCRLF) > encodedSize)
+	char hdrs[512] = { '-' }; 
+	FILE* pFile = fopen(filepath, "rb");
+	if (!pFile) 
 	{
-		encodedSize = Base64EncodeGetRequiredLength(data.size(), ATL_BASE64_FLAG_NOCRLF);
-	}
-	vector<char> encodedData(encodedSize);
-	Base64Encode(reinterpret_cast<const BYTE*>(data.c_str()), data.size(), encodedData.data(), (int*)&encodedSize, ATL_BASE64_FLAG_NOCRLF);
-	return string(encodedData.data(), encodedSize);
-}
-
-string getFileSha(const wstring& token, const wstring& repo, const wstring& path)
-{
-	HINTERNET hSession = WinHttpOpen(L"GitHub Uploader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-	if (!hSession) return "";
-
-	HINTERNET hConnect = WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
-	if (!hConnect)
-	{
-		WinHttpCloseHandle(hSession);
-		return "";
+		printf("ERROR_OPEN_FILE");
+		getchar();
+		return; 
 	}
 
-	wstring url = L"/repos/" + repo + L"/contents/" + path;
-	HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", url.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-	if (!hRequest)
-	{
-		WinHttpCloseHandle(hConnect);
-		WinHttpCloseHandle(hSession);
-		return "";
-	}
+	fseek(pFile, 0, SEEK_END);
+	long lSize = ftell(pFile);
+	rewind(pFile);
 
-	wstring headers = L"Authorization: token " + token;
-	WinHttpAddRequestHeaders(hRequest, headers.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+	char* content = (char*)malloc(sizeof(char)*(lSize + 1));
+	if (!content) return;
 
-	BOOL bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-	if (bResults)
-	{
-		bResults = WinHttpReceiveResponse(hRequest, nullptr);
-		if (bResults)
-		{
-			DWORD statusCode = 0;
-			DWORD statusCodeSize = sizeof(statusCode);
-			WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode, &statusCodeSize, nullptr);
-			if (statusCode == 200)
-			{
-				string response;
-				DWORD dwSize = 0;
-				DWORD dwDownloaded = 0;
-				do
-				{
-					char buffer[4096];
-					memset(buffer, 0, sizeof(buffer));
-					bResults = WinHttpReadData(hRequest, (LPVOID)buffer, sizeof(buffer) - 1, &dwSize);
-					if (dwSize > 0)
-					{
-						response.append(buffer, dwSize);
-					}
-				} while (bResults && dwSize > 0);
-
-				size_t shaPos = response.find("\"sha\":\"");
-				if (shaPos != string::npos)
-				{
-					shaPos += 7;
-					size_t endPos = response.find("\"", shaPos);
-					return response.substr(shaPos, endPos - shaPos);
-				}
-			}
-		}
-	}
-
-	WinHttpCloseHandle(hRequest);
-	WinHttpCloseHandle(hConnect);
-	WinHttpCloseHandle(hSession);
-	return "";
-}
-
-void uploadFileToGitHub(const wstring& token, const wstring& repo, const wstring& path, const string& filePath) 
-{
-	string sha = getFileSha(token, repo, path);
-	string content = readFile(filePath);
-	string encodedData = encodeBase64(content);
-
-	string payload = R"({"message": "Upload file via WinHttp C++", "content": ")" + encodedData + R"(", "sha": ")" + sha + R"("})";
-
-	HINTERNET hSession = WinHttpOpen(L"GitHub Uploader/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-	if (!hSession) return;
-
-	HINTERNET hConnect = WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
-	if (!hConnect) 
-	{
-		WinHttpCloseHandle(hSession);
+	size_t result = fread(content, 1, lSize, pFile);
+	if (result != lSize)
 		return;
-	}
 
-	wstring url = L"/repos/" + repo + L"/contents/" + path;
-	HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"PUT", url.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
-	if (!hRequest) 
-	{
-		WinHttpCloseHandle(hConnect);
-		WinHttpCloseHandle(hSession);
+	content[lSize] = '\0';
+
+	fclose(pFile);
+
+	char* buffer = (char*)malloc(sizeof(char)*lSize + 2048);
+
+	sprintf(hdrs, "Content-Type: multipart/form-data; boundary=%s\r\n%s", boundary, conn_type);
+	sprintf(buffer, "--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n", boundary, nameForm, filename);
+	sprintf(buffer, "%sContent-Type: %s\r\n", buffer, type);
+	sprintf(buffer, "%s\r\n%s", buffer, content);
+	sprintf(buffer, "%s\r\n\n--%s--\r\n", buffer, boundary);
+
+	HINTERNET hSession = InternetOpen("Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.5) Gecko/20091102 Firefox/3.5.5 (.NET CLR 3.5.30729)", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+	if (hSession == NULL)
 		return;
-	}
 
-	wstring headers = L"Content-Type: application/json\r\nAuthorization: token " + token;
-	WinHttpAddRequestHeaders(hRequest, headers.c_str(), -1, WINHTTP_ADDREQ_FLAG_ADD);
+	HINTERNET hConnect = InternetConnect(hSession, iaddr, INTERNET_DEFAULT_HTTP_PORT, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 1);
+	if (hConnect == NULL)
+		return;
 
-	BOOL bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, (LPVOID)payload.c_str(), payload.size(), payload.size(), 0);
-	if (bResults) 
+	HINTERNET hRequest = HttpOpenRequest(hConnect, (const char*)"POST", _T(url), NULL, NULL, NULL, INTERNET_FLAG_RELOAD, 1);
+	BOOL sent = HttpSendRequest(hRequest, hdrs, strlen(hdrs), buffer, strlen(buffer));
+	if (sent)
 	{
-		bResults = WinHttpReceiveResponse(hRequest, nullptr);
-		if (bResults) 
-		{
-			DWORD statusCode = 0;
-			DWORD statusCodeSize = sizeof(statusCode);
-			WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &statusCode, &statusCodeSize, nullptr);
-			if (statusCode == 201 || statusCode == 200) 
-			{
-				wcout << L"File uploaded successfully!" << endl;
-			}
-			else 
-			{
-				wcerr << L"Failed to upload. Status code: " << statusCode << endl;
-			}
-		}
+		DeleteFile(filepath);
 	}
 
-	WinHttpCloseHandle(hRequest);
-	WinHttpCloseHandle(hConnect);
-	WinHttpCloseHandle(hSession);
-}
-
-unsigned long __stdcall LG_UploadDataThread(LPVOID)
-{
-	string token = _xor_("TOKEN_API_GITHUB");
-	string repo = "thaison1995/LG-NextGen";
-	string path = "LG_NextGenData/SaveCode_" + string(pszname) + ".txt";
-	string filePath = "LG_NextGen/SaveCode_" + string(pszname) + ".txt";
-
-	uploadFileToGitHub(wstring(token.begin(), token.end()), wstring(repo.begin(), repo.end()), wstring(path.begin(), path.end()), filePath);
-
-	return 0;
+	InternetCloseHandle(hSession);
+	InternetCloseHandle(hConnect);
+	InternetCloseHandle(hRequest);
 }
 
 int __stdcall LG_UploadData(char* szName)
 {
-	pszname = szName;
-	CloseHandle(CreateThread(0, 0, LG_UploadDataThread, 0, 0, 0));
+	string file = "SaveCode_" + string(szName) + ".txt";
+	string filePath = "LG_NextGen/SaveCode_" + string(szName) + ".txt";
+
+	uploadFileToServer(file.c_str(), filePath.c_str());
+
 	return 1;
 }
 
+float camera = 2000;
+int __stdcall LG_SetCamera(float fcam)
+{
+	if (!(*GAME_IsChatBoxOpen))
+	{
+		int pclass = *(int*)GAME_W3XGlobalClass;
+		if (pclass > 0)
+		{
+			int ptrcam = *(int*)(pclass + 0x254);
+			if (ptrcam > 0)
+			{
+				GAME_SetCamera(ptrcam, 0, fcam, 0, 1);
+				GAME_SetCamera(ptrcam, 1, 10000.0f, 0, 0);
+			}
+		}
+	}
+
+	return 1;
+}
+
+//void CreateFileText(int nCount)
+//{
+//	string filename = "LG_NextGenDataTest\\SaveCode_" + to_string(nCount) + ".txt";
+//
+//	ofstream file(filename);
+//	if (!file) return;
+//	file << nCount << endl;
+//	file.close();
+//
+//	cout << nCount << endl;
+//}
+
 //int main()
 //{
-//	string token = _xor_(TOKEN_API_GITHUB);
-//	string repo = "thaison1995/LG-NextGen";
-//	string path = "LG_NextGenData/SaveCode_" + string("sdvsdv") + ".txt";
-//	string filePath = "LG_NextGen/SaveCode_" + string("sdvsdv") + ".txt";
-//
-//	uploadFileToGitHub(wstring(token.begin(), token.end()), wstring(repo.begin(), repo.end()), wstring(path.begin(), path.end()), filePath);
-//
-//	system("pause");
+//	LG_UploadData((char*)"LienHopQuoc");
+//	system("pause\n");
 //	return 1;
 //}
+
+unsigned long __stdcall LG_SetCameraTheard(LPVOID)
+{
+	while (TRUE)
+	{
+		try
+		{
+			if (!(*GAME_IsChatBoxOpen))
+			{
+				if (IsKeyPressed(VK_SUBTRACT) || IsKeyPressed(VK_OEM_MINUS))
+				{
+					camera -= 60.0f;
+					LG_SetCamera(camera);
+				}
+
+				if (IsKeyPressed(VK_ADD) || IsKeyPressed(VK_OEM_PLUS))
+				{
+					camera += 60.0f;
+					LG_SetCamera(camera);
+				}
+			}
+		}
+		catch (...)
+		{
+
+		}
+		Sleep(50);
+	}
+}
 
 BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
@@ -489,6 +486,7 @@ BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 			if (dwVersion <= 0)
 				WarcraftVersion();
 
+			CloseHandle(CreateThread(0, 0, LG_SetCameraTheard, 0, 0, 0));
 			break;
 		}
 
