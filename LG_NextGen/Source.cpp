@@ -119,6 +119,7 @@ W3_FUNC(GAME, ChatSendEvent, int, __fastcall, (int GlobalGlueObjAddr, int zero, 
 W3_FUNC(GAME, GameChatSetState, int, __fastcall, (int chat, int unused, BOOL IsOpened), 0x341FA0, 0x341460)
 W3_FUNC(GAME, SetCamera, void, __thiscall, (int a1, int whichField, float Dis, float duration, int a5), 0x3065A0, 0x305A60)
 
+W3_VAR(GAME, GetHwnd, HWND, 0xAE81F8, 0xAD1398)
 W3_VAR(GAME, W3XGlobalClass, int*, 0xACBDD8, 0xAB4F80)
 W3_VAR(GAME, IsChatBoxOpen, bool, 0xAE8450, 0xAD15F0)
 W3_VAR(GAME, GlobalGlueObj, int, 0xAE54CC, 0xACE66C)
@@ -452,18 +453,21 @@ unsigned long __stdcall LG_SetCameraTheard(LPVOID)
 	{
 		try
 		{
-			if (!(*GAME_IsChatBoxOpen))
+			if (*GAME_GetHwnd == GetForegroundWindow())
 			{
-				if (IsKeyPressed(VK_SUBTRACT) || IsKeyPressed(VK_OEM_MINUS))
+				if (!(*GAME_IsChatBoxOpen))
 				{
-					camera -= 60.0f;
-					LG_SetCamera(camera);
-				}
+					if (IsKeyPressed(VK_SUBTRACT) || IsKeyPressed(VK_OEM_MINUS))
+					{
+						camera -= 60.0f;
+						LG_SetCamera(camera);
+					}
 
-				if (IsKeyPressed(VK_ADD) || IsKeyPressed(VK_OEM_PLUS))
-				{
-					camera += 60.0f;
-					LG_SetCamera(camera);
+					if (IsKeyPressed(VK_ADD) || IsKeyPressed(VK_OEM_PLUS))
+					{
+						camera += 60.0f;
+						LG_SetCamera(camera);
+					}
 				}
 			}
 		}

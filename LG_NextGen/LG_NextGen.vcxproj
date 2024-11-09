@@ -74,8 +74,8 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <TargetExt>.w3ts</TargetExt>
-    <IncludePath>D:\LG_NextGen\ThirdParty\Storm;$(IncludePath)</IncludePath>
-    <LibraryPath>D:\LG_NextGen\ThirdParty\Storm;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)\ThirdParty\Storm;$(IncludePath)</IncludePath>
+    <LibraryPath>$(SolutionDir)\ThirdParty\Storm;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
