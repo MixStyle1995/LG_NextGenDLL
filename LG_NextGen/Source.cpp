@@ -1,5 +1,7 @@
 #include "Header.h"
 
+string V_DirWar3;
+
 #define IsKeyPressed(CODE) (GetAsyncKeyState(CODE) & 0x8000) > 0
 
 void LogItem(const char* Msg...)
@@ -224,12 +226,12 @@ void __stdcall SendMessageToChat(const char* msg, ...)
 
 int __stdcall LG_AutoLoadCode(char* szName)
 {
-	CreateFolder("LG_NextGen\\");
+	CreateFolder(V_DirWar3);
 	char line[4096] = {};
 	char* str;
 	char* str2;
 
-	string szFile = "LG_NextGen\\SaveCode_" + string(szName) + ".txt";
+	string szFile = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
 	FILE* pFile = fopen(szFile.c_str(), "r");
 	if (!pFile) return 0;
 
@@ -249,6 +251,7 @@ int __stdcall LG_AutoLoadCode(char* szName)
 	{
 		string autoload = string("-load ") + string(a);
 		SendMessageToChat("%s", autoload.c_str());
+		DeleteFile(szFile.c_str());
 	}
 
 	return 1;
@@ -271,7 +274,7 @@ namespace MPQ
 HANDLE MPQHandleEx = 0;
 unsigned long __stdcall DowFile(LPVOID)
 {
-	string szFile = "LG_NextGen\\LG_Model.mpq";
+	string szFile = V_DirWar3 + "\\LG_Model.mpq";
 	string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_Model.mpq";
 	HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
 	if (res != S_OK)
@@ -284,8 +287,8 @@ unsigned long __stdcall DowFile(LPVOID)
 
 int __stdcall LG_DowloadModel(int)
 {
-	CreateFolder("LG_NextGen\\");
-	string szFile = "LG_NextGen\\LG_Model.mpq";
+	CreateFolder(V_DirWar3);
+	string szFile = V_DirWar3 + "\\LG_Model.mpq";
 
 	if (!FileExists(szFile))
 	{
@@ -295,7 +298,7 @@ int __stdcall LG_DowloadModel(int)
 	{
 		MPQ::OpenArchive(szFile, &MPQHandleEx);
 		auto nSizeFile = fileSize(szFile.c_str());
-		if (nSizeFile < 7777777)
+		if (nSizeFile < 10000000)
 		{
 			if (MPQHandleEx)
 			{
@@ -313,14 +316,13 @@ int __stdcall LG_DowloadModel(int)
 string pszname;
 unsigned long __stdcall LG_DowloadDataThread(LPVOID)
 {
-	string szFile = "LG_NextGen\\SaveCode_" + pszname + ".txt";
+	string szFile = V_DirWar3 + "\\SaveCode_" + pszname + ".txt";
 
-	if (FileExists("LG_NextGen\\SaveCode.txt"))
-		rename("LG_NextGen\\SaveCode.txt", szFile.c_str());
+	if (FileExists(V_DirWar3 + "\\SaveCode.txt"))
+		rename(string(V_DirWar3 + "\\SaveCode.txt").c_str(), szFile.c_str());
 
 	if (!FileExists(szFile))
 	{
-		//string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_NextGenData/" + string("SaveCode_") + pszname + ".txt";
 		string strUrl = "http://160.187.146.137/LG_NextGen/" + string("SaveCode_") + pszname + ".txt";
 		HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
 		if (res != S_OK)
@@ -337,7 +339,7 @@ int __stdcall LG_DowloadData(char* szName)
 	return 1;
 }
 
-void uploadFileToServer(const char *filename, const char *filepath)
+bool uploadFileToServer(const char *filename, const char *filepath)
 {
 	const char *type = "text/plain";
 	char boundary[] = "---------------------------1BsFuekqmX38dmi1e82t4XFLWRKJSY9MPL"; 
@@ -348,23 +350,18 @@ void uploadFileToServer(const char *filename, const char *filepath)
 
 	char hdrs[512] = { '-' }; 
 	FILE* pFile = fopen(filepath, "rb");
-	if (!pFile) 
-	{
-		printf("ERROR_OPEN_FILE");
-		getchar();
-		return; 
-	}
+	if (!pFile) return false; 
 
 	fseek(pFile, 0, SEEK_END);
 	long lSize = ftell(pFile);
 	rewind(pFile);
 
 	char* content = (char*)malloc(sizeof(char)*(lSize + 1));
-	if (!content) return;
+	if (!content) return false;
 
 	size_t result = fread(content, 1, lSize, pFile);
 	if (result != lSize)
-		return;
+		return false;
 
 	content[lSize] = '\0';
 
@@ -380,30 +377,37 @@ void uploadFileToServer(const char *filename, const char *filepath)
 
 	HINTERNET hSession = InternetOpen("Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.5) Gecko/20091102 Firefox/3.5.5 (.NET CLR 3.5.30729)", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 	if (hSession == NULL)
-		return;
+		return false;
 
 	HINTERNET hConnect = InternetConnect(hSession, iaddr, INTERNET_DEFAULT_HTTP_PORT, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 1);
 	if (hConnect == NULL)
-		return;
+		return false;
 
 	HINTERNET hRequest = HttpOpenRequest(hConnect, (const char*)"POST", _T(url), NULL, NULL, NULL, INTERNET_FLAG_RELOAD, 1);
 	BOOL sent = HttpSendRequest(hRequest, hdrs, strlen(hdrs), buffer, strlen(buffer));
-	if (sent)
+	if (!sent)
 	{
-		DeleteFile(filepath);
+		InternetCloseHandle(hSession);
+		InternetCloseHandle(hConnect);
+		InternetCloseHandle(hRequest);
+		return false;
 	}
 
+	DeleteFile(filepath);
 	InternetCloseHandle(hSession);
 	InternetCloseHandle(hConnect);
 	InternetCloseHandle(hRequest);
+	return true;
 }
 
 int __stdcall LG_UploadData(char* szName)
 {
 	string file = "SaveCode_" + string(szName) + ".txt";
-	string filePath = "LG_NextGen/SaveCode_" + string(szName) + ".txt";
+	string filePath = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
 
-	uploadFileToServer(file.c_str(), filePath.c_str());
+	if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
+		if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
+			uploadFileToServer(file.c_str(), filePath.c_str());
 
 	return 1;
 }
@@ -486,14 +490,16 @@ BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 		case DLL_PROCESS_ATTACH:
 		{
 			DisableThreadLibraryCalls(hinstDLL);
-			CreateFolder("LG_NextGen\\");
+			char filename[4096] = {};
+			GetCurrentDirectory(4096, filename);
+			V_DirWar3.assign(filename);
+			V_DirWar3 += "\\LG_NextGen";
+			CreateFolder(V_DirWar3);
 			if (dwVersion <= 0)
 				WarcraftVersion();
-
 			CloseHandle(CreateThread(0, 0, LG_SetCameraTheard, 0, 0, 0));
 			break;
 		}
-
 		case DLL_PROCESS_DETACH:
 		{
 
