@@ -1,0 +1,14 @@
+function PreloadFiles takes nothing returns nothing
+
+	call Preload( "-load BP9S-160D-ACUA-50CY" )
+	call Preload( "Name: LienHopQuoc" )
+	call Preload( "Rank: 3" )
+	call Preload( "Win: 15" )
+	call Preload( "Lose: 4" )
+	call Preload( "ELO: 100" )
+	call PreloadEnd( 0.0 )
+
+endfunction
+
+
+

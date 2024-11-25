@@ -15,9 +15,12 @@
 #include <array>
 #include <sstream>
 #include <wininet.h>
+#include <fstream>
+#include <regex>
+#include <vector>
+#include <map>
 
 #include "XorStr.hpp"
-//#include "crow_all.h"
 
 #pragma comment(lib, "Storm.lib")
 #pragma comment(lib, "urlmon.lib")

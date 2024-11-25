@@ -25,11 +25,23 @@ void LogItem(const char* Msg...)
 }
 
 DWORD dwVersion = 0;
+static const DWORD CALL = 0xE8;
+static const DWORD JUMP = 0xE9;
+static const DWORD NOP = 0x90;
+static const DWORD RET = 0xC3;
+static const DWORD XOR = 0x33;
+static const DWORD CUSTOM = 0;
 
 enum Version
 {
 	v124e = 6387,
 	v126a = 6401,
+};
+
+struct w3_version
+{
+	int v124e;
+	int v126a;
 };
 
 enum FileDLL
@@ -114,18 +126,142 @@ DWORD GetDllOffsetEx(int num, int offset, int offset2)
 	return 0;
 }
 
+BOOL WriteBytes(LPVOID pAddr, VOID * pData, DWORD dwLen)
+{
+	DWORD dwOld;
+
+	if (!VirtualProtect(pAddr, dwLen, PAGE_READWRITE, &dwOld))
+		return FALSE;
+
+	memcpy(pAddr, pData, dwLen);
+	return VirtualProtect(pAddr, dwLen, dwOld, &dwOld);
+}
+
+DWORD VirtualProtectEX(DWORD pAddress, DWORD len, DWORD prot)
+{
+	DWORD oldprot = 0;
+	VirtualProtect((void*)pAddress, len, prot, &oldprot);
+	return oldprot;
+}
+
+void WriteLocalBYTES(DWORD pAddress, void* buf, int len)
+{
+	DWORD oldprot = VirtualProtectEX(pAddress, len, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(GetCurrentProcess(), (void*)pAddress, buf, len, 0);
+	VirtualProtectEX(pAddress, len, oldprot);
+}
+
+void PatchVALUE(DWORD addr, DWORD param, DWORD len)
+{
+	WriteLocalBYTES(addr, &param, len);
+}
+
+void Patch(BYTE bInst, const char* dll, DWORD pAddr, DWORD pFunc, DWORD dwLen, const char* Type)
+{
+	if (pAddr == 0) return;
+	pAddr = GetDllOffset(dll, pAddr);
+	BYTE *bCode = new BYTE[dwLen];
+	if (bInst)
+	{
+		::memset(bCode, 0x90, dwLen);
+		bCode[0] = bInst;
+		if (pFunc)
+		{
+			if (bInst == 0xE8 || bInst == 0xE9)
+			{
+				DWORD dwFunc = pFunc - (pAddr + 5);
+				*(DWORD*)&bCode[1] = dwFunc;
+			}
+			else if (bInst == 0x68 || bInst == 0x05 || bInst == 0x5B)
+			{
+				*(LPDWORD)&bCode[1] = pFunc;
+			}
+			else if (bInst == 0x83)
+			{
+				*(WORD*)&bCode[1] = (WORD)pFunc;
+			}
+			else
+			{
+				bCode[1] = (BYTE)pFunc;
+			}
+		}
+	}
+	else
+	{
+		if (dwLen == 6)
+		{
+			::memset(bCode, 0x00, dwLen);
+			*(DWORD*)&bCode[0] = pFunc;
+		}
+		else if (dwLen == 4)
+			*(DWORD*)&bCode[0] = pFunc;
+		else if (dwLen == 3)
+		{
+			PatchVALUE(pAddr, pFunc, dwLen);
+		}
+		else if (dwLen == 2)
+			*(WORD*)&bCode[0] = (WORD)pFunc;
+		else if (dwLen == 1)
+			*(BYTE*)&bCode[0] = (BYTE)pFunc;
+		else {
+			memcpy(bCode, (void*)pFunc, dwLen);
+		}
+	}
+
+	if (!WriteBytes((void*)pAddr, bCode, dwLen))
+	{
+		delete[] bCode;
+	}
+	delete[] bCode;
+
+	FlushInstructionCache(GetCurrentProcess(), (void*)pAddr, dwLen);
+}
+
+void PatchEx(BYTE bInst, const char* dll, w3_version pAddr, DWORD pFunc, DWORD dwLen, const char* Type)
+{
+	if (dwVersion <= 0)
+		WarcraftVersion();
+
+	if (dwVersion == v124e)
+		Patch(bInst, dll, pAddr.v124e, pFunc, dwLen, Type);
+
+	if (dwVersion == v126a)
+		Patch(bInst, dll, pAddr.v126a, pFunc, dwLen, Type);
+}
+
+#pragma pack(1)
+struct DataLG
+{
+	int ELO;
+	int Win;
+	int Lose;
+};
+
+struct CTextFrame
+{
+	BYTE						baseControl[0x1E4];		//0x0
+	uint32_t					textLength;				//0x1E4
+	char*						text;					//0x1E8
+};
+#pragma pack()
+
+map<string, DataLG*> mName;
+bool ismaplgng = false;
+
 #define W3_FUNC(DLL, NAME, RETURN, CONV, ARGS, OFFSET, OFFSET2) typedef RETURN (CONV* DLL##_##NAME##_t) ARGS; __declspec(selectany) extern DLL##_##NAME##_t DLL##_##NAME = (DLL##_##NAME##_t)GetDllOffsetEx(DDLL_##DLL, OFFSET, OFFSET2);   ///
 #define W3_VAR(DLL, NAME, TYPE, OFFSET, OFFSET2) typedef TYPE DLL##_##NAME##_vt; __declspec(selectany) extern DLL##_##NAME##_vt * DLL##_##NAME = (DLL##_##NAME##_vt *)GetDllOffsetEx(DDLL_##DLL, OFFSET, OFFSET2);                          ///
 
 W3_FUNC(GAME, ChatSendEvent, int, __fastcall, (int GlobalGlueObjAddr, int zero, int event_vtable), 0x2FD240, 0x2FC700)
 W3_FUNC(GAME, GameChatSetState, int, __fastcall, (int chat, int unused, BOOL IsOpened), 0x341FA0, 0x341460)
 W3_FUNC(GAME, SetCamera, void, __thiscall, (int a1, int whichField, float Dis, float duration, int a5), 0x3065A0, 0x305A60)
+W3_FUNC(GAME, GetPlayerName, char*, __thiscall, (int nPlayerId), 0x2F9AD0, 0x2F8F90)
 
 W3_VAR(GAME, GetHwnd, HWND, 0xAE81F8, 0xAD1398)
 W3_VAR(GAME, W3XGlobalClass, int*, 0xACBDD8, 0xAB4F80)
 W3_VAR(GAME, IsChatBoxOpen, bool, 0xAE8450, 0xAD15F0)
 W3_VAR(GAME, GlobalGlueObj, int, 0xAE54CC, 0xACE66C)
 W3_VAR(GAME, EventVtable, int, 0xAB0CD0, 0xA9ACB0)
+W3_VAR(GAME, MapNameOffset1, int, 0xAC55E0, 0xAAE788)
 
 streampos fileSize(const char* filePath)
 {
@@ -224,36 +360,221 @@ void __stdcall SendMessageToChat(const char* msg, ...)
 	BlockInput(FALSE);
 }
 
+DataLG* __fastcall GetDataLG(string szName)
+{
+	const char* host = "160.187.146.137";
+	string path = "/LG_NextGen/SaveCode_" + string(szName) + ".txt";
+	const INTERNET_PORT port = 80;
+
+	HINTERNET hInternet = InternetOpen("WinINet Example", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+	if (!hInternet) return nullptr;
+
+
+	HINTERNET hConnect = InternetConnect(hInternet, host, port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
+	if (!hConnect)
+	{
+		InternetCloseHandle(hInternet);
+		return nullptr;
+	}
+
+	HINTERNET hRequest = HttpOpenRequest(hConnect, "GET", path.c_str(), NULL, NULL, NULL, INTERNET_FLAG_RELOAD, 0);
+	if (!hRequest)
+	{
+		InternetCloseHandle(hConnect);
+		InternetCloseHandle(hInternet);
+		return nullptr;
+	}
+
+	BOOL bSendRequest = HttpSendRequest(hRequest, NULL, 0, NULL, 0);
+	if (!bSendRequest)
+	{
+		InternetCloseHandle(hRequest);
+		InternetCloseHandle(hConnect);
+		InternetCloseHandle(hInternet);
+		return nullptr;
+	}
+
+	char buffer[4096] = {};
+	DWORD bytesRead = 0;
+	string szTextData;
+
+	while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead != 0)
+	{
+		buffer[bytesRead] = '\0';
+		szTextData.append(buffer, bytesRead);
+	}
+
+	InternetCloseHandle(hRequest);
+	InternetCloseHandle(hConnect);
+	InternetCloseHandle(hInternet);
+
+	if (szTextData.empty())
+		return nullptr;
+
+	if (szTextData.find("ELO") == string::npos || szTextData.find("Win") == string::npos || szTextData.find("Lose") == string::npos)
+		return nullptr;
+
+	regex pattern_win(R"("Win:\s*(-?\d+))");
+	regex pattern_lose(R"("Lose:\s*(-?\d+))");
+	regex pattern_elo(R"(ELO:\s*(-?\d+))");
+
+	int win = 0, lose = 0, elo = 0;
+	smatch match;
+
+	if (regex_search(szTextData, match, pattern_win))
+		win = stoi(match[1].str());
+
+	if (regex_search(szTextData, match, pattern_lose))
+		lose = stoi(match[1].str());
+
+	if (regex_search(szTextData, match, pattern_elo))
+		elo = stoi(match[1].str());
+
+	//std::cout << "Win: " << win << std::endl;
+	//std::cout << "Lose: " << lose << std::endl;
+	//std::cout << "ELO: " << elo << std::endl;
+
+	DataLG pDataLG = { elo, win, lose };
+	return new DataLG(pDataLG);
+}
+
+W3_FUNC(GAME, SetTextFrameRace, void, __thiscall, (int* pThis, int nRace), 0x559D60, 0x559260)
+W3_FUNC(GAME, SetTextFrameObs, void, __thiscall, (int* pThis), 0x559E20, 0x559320)
+W3_FUNC(GAME, ChatRoomPlayerJoin, void, __thiscall, (int* pThis, int p38C), 0x57BD00, 0x57B060)
+W3_FUNC(GAME, GetPlayerNameEx, const char*, __fastcall, (BYTE a1, int a2), 0x53F900, 0x53EE00)
+W3_FUNC(GAME, sub_6F54FEF0, BYTE, __fastcall, (int pthis, int a2), 0x54FEF0, 0x54F3F0)
+W3_FUNC(GAME, sub_6F53F8D0, BYTE, __fastcall, (int a1), 0x53F8D0, 0x53EDD0)
+W3_FUNC(GAME, TextFrame_setText, void, __thiscall, (CTextFrame* t, const char* text), 0x6124E0, 0x611D40)
+
+CTextFrame* __fastcall sub_6F61EFC0(int* pthis)
+{
+	return (CTextFrame*)pthis[0x79];
+}
+
+string __fastcall GetTextDataLG(int* pThis)
+{
+	if (pThis && ismaplgng == true)
+	{
+		CTextFrame* pCTextFrameNamePlayer = sub_6F61EFC0(*(int**)(pThis[0x68] + 0x1E4));
+		if (pCTextFrameNamePlayer)
+		{
+			if (pCTextFrameNamePlayer->text)
+			{
+				DataLG* pData = mName[pCTextFrameNamePlayer->text];
+				if (pData)
+				{
+					string szELO = "|cFFFFCC00ELO|r: |cFF1CE6B9" + to_string(pData->ELO);
+					string szWIN = "|cFFFFCC00W|r: |cFF1CE6B9" + to_string(pData->Win);
+					string szLose = "|cFFFFCC00L|r: |cFF1CE6B9" + to_string(pData->Lose);
+					return szELO + " " + szWIN + " " + szLose;
+				}
+			}
+		}
+	}
+
+	return "";
+}
+
+void __fastcall GAME_SetTextFrameRace_hook(int* pThis, int nothing, int nRace)
+{
+	string szText = GetTextDataLG(pThis);
+	if (szText.empty())
+	{
+		GAME_SetTextFrameRace(pThis, nRace);
+		return;
+	}
+
+	if (pThis)
+		GAME_TextFrame_setText(sub_6F61EFC0((int*)sub_6F61EFC0((int*)pThis[0x69])), szText.c_str());
+}
+
+void __fastcall GAME_SetTextFrameObs_hook(int* pThis, int nothing)
+{
+	string szText = GetTextDataLG(pThis);
+	if (szText.empty())
+	{
+		GAME_SetTextFrameObs(pThis);
+		return;
+	}
+
+	if (pThis)
+		GAME_TextFrame_setText(sub_6F61EFC0(*(int**)(pThis[0x69] + 0x1E4)), szText.c_str());
+}
+
+void __fastcall GAME_ChatRoomPlayerJoin_Hook(int* pThis, int nothing, int p38C)
+{
+	GAME_ChatRoomPlayerJoin(pThis, p38C);
+
+	if (p38C && ismaplgng == true)
+	{
+		const char* szName = GAME_GetPlayerNameEx(GAME_sub_6F54FEF0(*(BYTE*)(p38C + 0x14), *(int*)(p38C + 0x10)), 0);
+		if (szName)
+		{
+			DataLG* pData = GetDataLG(szName);
+			if (pData)
+				mName[szName] = pData;
+		}
+	}
+
+	if (pThis)
+	{
+		const char* szNameMe = GAME_GetPlayerNameEx(GAME_sub_6F53F8D0(pThis[90]), pThis[90]);
+		if (szNameMe && mName[szNameMe] == nullptr)
+		{
+			DataLG* pData = GetDataLG(szNameMe);
+			if (pData)
+				mName[szNameMe] = pData;
+		}
+	}
+}
+
+void __fastcall TextFrame_setText_0x3C8(CTextFrame *pCTextFrame, int edx, const char *szText)
+{
+	ismaplgng = false;
+	if (szText)
+	{
+		string szMapName = szText;
+		if (
+			szMapName.find("LTDx20NG") != string::npos ||
+			(szMapName.find("LegionTD x20") != string::npos && szMapName.find("NextGen") != string::npos && szMapName.find("ETS") != string::npos)
+			)
+			ismaplgng = true;
+	}
+
+	GAME_TextFrame_setText(pCTextFrame, szText);
+}
+
 int __stdcall LG_AutoLoadCode(char* szName)
 {
 	CreateFolder(V_DirWar3);
-	char line[4096] = {};
-	char* str;
-	char* str2;
+	char line[8000] = {};
 
 	string szFile = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
 	FILE* pFile = fopen(szFile.c_str(), "r");
 	if (!pFile) return 0;
 
-	while (fgets(line, 4096, pFile))
+	while (fgets(line, 8000, pFile))
 	{
-		str = strstr(line, "-load ");
-		if (str)
+		string input = line;
+		std::string prefix = "-load ";
+		size_t startPos = input.find(prefix);
+		if (startPos != std::string::npos) 
 		{
-			str2 = str + strlen("-load ");
-			break;
+			size_t endPos = input.find("\"", startPos);
+			if (endPos != std::string::npos) 
+			{
+				string code = input.substr(startPos, endPos - startPos);
+				if (code.length() > 0)
+				{
+					SendMessageToChat("%s", code.c_str());
+					DeleteFile(szFile.c_str());
+					break;
+				}
+			}
 		}
 	}
 
 	fclose(pFile);
-	char* a = substr(str2, 0, strlen(str2) - 4);
-	if (strlen(a) > 0)
-	{
-		string autoload = string("-load ") + string(a);
-		SendMessageToChat("%s", autoload.c_str());
-		DeleteFile(szFile.c_str());
-	}
-
 	return 1;
 }
 
@@ -285,8 +606,72 @@ unsigned long __stdcall DowFile(LPVOID)
 	return 0;
 }
 
+float camera = 2000;
+int __stdcall LG_SetCamera(float fcam)
+{
+	if (!(*GAME_IsChatBoxOpen))
+	{
+		int pclass = *(int*)GAME_W3XGlobalClass;
+		if (pclass > 0)
+		{
+			int ptrcam = *(int*)(pclass + 0x254);
+			if (ptrcam > 0)
+			{
+				GAME_SetCamera(ptrcam, 0, fcam, 0, 1);
+				GAME_SetCamera(ptrcam, 1, 10000.0f, 0, 0);
+			}
+
+			int world = *(int*)(pclass + 0x3BC);
+			if (world > 0)
+			{
+				int pData = *(int*)(world + 0x334);
+				if (pData > 0)
+					*(float*)(pData + 0xBC) = 20000.00f;
+			}
+		}
+	}
+
+	return 1;
+}
+
+unsigned long __stdcall LG_SetCameraTheard(LPVOID)
+{
+	while (TRUE)
+	{
+		try
+		{
+			if (*GAME_GetHwnd == GetForegroundWindow())
+			{
+				if (!(*GAME_IsChatBoxOpen))
+				{
+					if (IsKeyPressed(VK_SUBTRACT) || IsKeyPressed(VK_OEM_MINUS))
+					{
+						camera -= 60.0f;
+						LG_SetCamera(camera);
+					}
+
+					if (IsKeyPressed(VK_ADD) || IsKeyPressed(VK_OEM_PLUS))
+					{
+						camera += 60.0f;
+						LG_SetCamera(camera);
+					}
+				}
+			}
+		}
+		catch (...)
+		{
+
+		}
+		Sleep(50);
+	}
+}
+
 int __stdcall LG_DowloadModel(int)
 {
+	mName.clear();
+
+	CloseHandle(CreateThread(0, 0, LG_SetCameraTheard, 0, 0, 0));
+
 	CreateFolder(V_DirWar3);
 	string szFile = V_DirWar3 + "\\LG_Model.mpq";
 
@@ -309,24 +694,33 @@ int __stdcall LG_DowloadModel(int)
 			CloseHandle(CreateThread(0, 0, DowFile, 0, 0, 0));
 		}
 	}
-
 	return 1;
 }
 
-string pszname;
-unsigned long __stdcall LG_DowloadDataThread(LPVOID)
+bool LG_URLDownloadToFile(string szFile, string strUrl)
 {
-	string szFile = V_DirWar3 + "\\SaveCode_" + pszname + ".txt";
+	DeleteUrlCacheEntry(strUrl.c_str());
+	HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
+	if (res != S_OK)
+		return false;
 
-	if (FileExists(V_DirWar3 + "\\SaveCode.txt"))
-		rename(string(V_DirWar3 + "\\SaveCode.txt").c_str(), szFile.c_str());
+	DeleteUrlCacheEntry(strUrl.c_str());
+	return true;
+}
 
-	if (!FileExists(szFile))
+unsigned long __stdcall LG_DowloadDataThread(LPVOID lpThreadParameter)
+{
+	char* szName = (char*)lpThreadParameter;
+	if (szName)
 	{
-		string strUrl = "http://160.187.146.137/LG_NextGen/" + string("SaveCode_") + pszname + ".txt";
-		HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
-		if (res != S_OK)
-			return 0;
+		string szFile = V_DirWar3 + "\\SaveCode_" + szName + ".txt";
+		if (!FileExists(szFile))
+		{
+			string strUrl = "http://160.187.146.137/LG_NextGen/" + string("SaveCode_") + szName + ".txt";
+			if (LG_URLDownloadToFile(szFile, strUrl) == false)
+				if (LG_URLDownloadToFile(szFile, strUrl) == false)
+					LG_URLDownloadToFile(szFile, strUrl);
+		}
 	}
 
 	return 0;
@@ -334,8 +728,7 @@ unsigned long __stdcall LG_DowloadDataThread(LPVOID)
 
 int __stdcall LG_DowloadData(char* szName)
 {
-	pszname = szName;
-	CloseHandle(CreateThread(0, 0, LG_DowloadDataThread, 0, 0, 0));
+	CloseHandle(CreateThread(0, 0, LG_DowloadDataThread, szName, 0, 0));
 	return 1;
 }
 
@@ -402,86 +795,30 @@ bool uploadFileToServer(const char *filename, const char *filepath)
 
 int __stdcall LG_UploadData(char* szName)
 {
-	string file = "SaveCode_" + string(szName) + ".txt";
-	string filePath = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
-
-	if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
-		if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
-			uploadFileToServer(file.c_str(), filePath.c_str());
-
-	return 1;
-}
-
-float camera = 2000;
-int __stdcall LG_SetCamera(float fcam)
-{
-	if (!(*GAME_IsChatBoxOpen))
+	if (szName)
 	{
-		int pclass = *(int*)GAME_W3XGlobalClass;
-		if (pclass > 0)
-		{
-			int ptrcam = *(int*)(pclass + 0x254);
-			if (ptrcam > 0)
-			{
-				GAME_SetCamera(ptrcam, 0, fcam, 0, 1);
-				GAME_SetCamera(ptrcam, 1, 10000.0f, 0, 0);
-			}
-		}
+		string file = "SaveCode_" + string(szName) + ".txt";
+		string filePath = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
+
+		if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
+			if (uploadFileToServer(file.c_str(), filePath.c_str()) == false)
+				uploadFileToServer(file.c_str(), filePath.c_str());
 	}
 
 	return 1;
 }
-
-//void CreateFileText(int nCount)
-//{
-//	string filename = "LG_NextGenDataTest\\SaveCode_" + to_string(nCount) + ".txt";
-//
-//	ofstream file(filename);
-//	if (!file) return;
-//	file << nCount << endl;
-//	file.close();
-//
-//	cout << nCount << endl;
-//}
 
 //int main()
 //{
-//	LG_UploadData((char*)"LienHopQuoc");
+//	char filename[4096] = {};
+//	GetCurrentDirectory(4096, filename);
+//	V_DirWar3.assign(filename);
+//	V_DirWar3 += "\\LG_NextGen";
+//	CreateFolder(V_DirWar3);
+//	LG_DowloadData((char*)"LienHopQuoc");
 //	system("pause\n");
 //	return 1;
 //}
-
-unsigned long __stdcall LG_SetCameraTheard(LPVOID)
-{
-	while (TRUE)
-	{
-		try
-		{
-			if (*GAME_GetHwnd == GetForegroundWindow())
-			{
-				if (!(*GAME_IsChatBoxOpen))
-				{
-					if (IsKeyPressed(VK_SUBTRACT) || IsKeyPressed(VK_OEM_MINUS))
-					{
-						camera -= 60.0f;
-						LG_SetCamera(camera);
-					}
-
-					if (IsKeyPressed(VK_ADD) || IsKeyPressed(VK_OEM_PLUS))
-					{
-						camera += 60.0f;
-						LG_SetCamera(camera);
-					}
-				}
-			}
-		}
-		catch (...)
-		{
-
-		}
-		Sleep(50);
-	}
-}
 
 BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
@@ -497,7 +834,11 @@ BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 			CreateFolder(V_DirWar3);
 			if (dwVersion <= 0)
 				WarcraftVersion();
-			CloseHandle(CreateThread(0, 0, LG_SetCameraTheard, 0, 0, 0));
+
+			PatchEx(CALL, szGameDLL(), { 0x59B851, 0x59B0B1 }, (DWORD)TextFrame_setText_0x3C8, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x5B755C, 0x5B6DBC }, (DWORD)GAME_ChatRoomPlayerJoin_Hook, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x5619F6, 0x560EF6 }, (DWORD)GAME_SetTextFrameRace_hook, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x561A10, 0x560F10 }, (DWORD)GAME_SetTextFrameObs_hook, 5, "");
 			break;
 		}
 		case DLL_PROCESS_DETACH:
