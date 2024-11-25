@@ -547,8 +547,9 @@ void __fastcall TextFrame_setText_0x3C8(CTextFrame *pCTextFrame, int edx, const 
 int __stdcall LG_AutoLoadCode(char* szName)
 {
 	CreateFolder(V_DirWar3);
+	
+	string code;
 	char line[8000] = {};
-
 	string szFile = V_DirWar3 + "\\SaveCode_" + string(szName) + ".txt";
 	FILE* pFile = fopen(szFile.c_str(), "r");
 	if (!pFile) return 0;
@@ -563,18 +564,17 @@ int __stdcall LG_AutoLoadCode(char* szName)
 			size_t endPos = input.find("\"", startPos);
 			if (endPos != std::string::npos) 
 			{
-				string code = input.substr(startPos, endPos - startPos);
-				if (code.length() > 0)
-				{
-					SendMessageToChat("%s", code.c_str());
-					DeleteFile(szFile.c_str());
-					break;
-				}
+				code = input.substr(startPos, endPos - startPos);
+				break;
 			}
 		}
 	}
-
 	fclose(pFile);
+	if (code.length() > 0)
+	{
+		SendMessageToChat("%s", code.c_str());
+		DeleteFile(szFile.c_str());
+	}
 	return 1;
 }
 
