@@ -255,6 +255,8 @@ W3_FUNC(GAME, ChatSendEvent, int, __fastcall, (int GlobalGlueObjAddr, int zero, 
 W3_FUNC(GAME, GameChatSetState, int, __fastcall, (int chat, int unused, BOOL IsOpened), 0x341FA0, 0x341460)
 W3_FUNC(GAME, SetCamera, void, __thiscall, (int a1, int whichField, float Dis, float duration, int a5), 0x3065A0, 0x305A60)
 W3_FUNC(GAME, GetPlayerName, char*, __thiscall, (int nPlayerId), 0x2F9AD0, 0x2F8F90)
+W3_FUNC(GAME, GetFrameItemAddr, int, __fastcall, (const char* name, int id), 0x5FB110, 0x5FA970)
+W3_FUNC(GAME, ClearPopupMenu, int, __thiscall, (int FrameAddr), 0x335830, 0x334CF0)
 
 W3_VAR(GAME, GetHwnd, HWND, 0xAE81F8, 0xAD1398)
 W3_VAR(GAME, W3XGlobalClass, int*, 0xACBDD8, 0xAB4F80)
@@ -288,15 +290,6 @@ bool FileExists(const string& fileName)
 {
 	const DWORD fileAttributes = GetFileAttributesA(fileName.c_str());
 	return (fileAttributes != INVALID_FILE_ATTRIBUTES) && (fileAttributes != FILE_ATTRIBUTE_DIRECTORY);
-}
-
-char* substr(char* arr, int begin, int len)
-{
-	char* res = new char[len + 1];
-	for (int i = 0; i < len; i++)
-		res[i] = *(arr + begin + i);
-	res[len] = 0;
-	return res;
 }
 
 int GetChatOffset()
@@ -439,7 +432,9 @@ DataLG* __fastcall GetDataLG(string szName)
 }
 
 W3_FUNC(GAME, SetTextFrameRace, void, __thiscall, (int* pThis, int nRace), 0x559D60, 0x559260)
-W3_FUNC(GAME, SetTextFrameObs, void, __thiscall, (int* pThis), 0x559E20, 0x559320)
+W3_FUNC(GAME, SetTextFrameHandicap, void, __thiscall, (int* pThis, int nRace), 0x559E80, 0x559380)
+W3_FUNC(GAME, SetTextFrameObsRace, void, __thiscall, (int* pThis), 0x559E20, 0x559320)
+W3_FUNC(GAME, SetTextFrameObsHandicap, void, __thiscall, (int* pThis), 0x559E20, 0x559420)
 W3_FUNC(GAME, ChatRoomPlayerJoin, void, __thiscall, (int* pThis, int p38C), 0x57BD00, 0x57B060)
 W3_FUNC(GAME, GetPlayerNameEx, const char*, __fastcall, (BYTE a1, int a2), 0x53F900, 0x53EE00)
 W3_FUNC(GAME, sub_6F54FEF0, BYTE, __fastcall, (int pthis, int a2), 0x54FEF0, 0x54F3F0)
@@ -463,10 +458,31 @@ string __fastcall GetTextDataLG(int* pThis)
 				DataLG* pData = mName[pCTextFrameNamePlayer->text];
 				if (pData)
 				{
-					string szELO = "|cFFFFCC00ELO|r: |cFF1CE6B9" + to_string(pData->ELO);
 					string szWIN = "|cFFFFCC00W|r: |cFF1CE6B9" + to_string(pData->Win);
 					string szLose = "|cFFFFCC00L|r: |cFF1CE6B9" + to_string(pData->Lose);
-					return szELO + " " + szWIN + " " + szLose;
+					return szWIN + " " + szLose;
+				}
+			}
+		}
+	}
+
+	return "";
+}
+
+string __fastcall GetTextELODataLG(int* pThis)
+{
+	if (pThis && ismaplgng == true)
+	{
+		CTextFrame* pCTextFrameNamePlayer = sub_6F61EFC0(*(int**)(pThis[0x68] + 0x1E4));
+		if (pCTextFrameNamePlayer)
+		{
+			if (pCTextFrameNamePlayer->text)
+			{
+				DataLG* pData = mName[pCTextFrameNamePlayer->text];
+				if (pData)
+				{
+					string szELO = "|cFFFFCC00ELO|r: |cFF1CE6B9" + to_string(pData->ELO);
+					return szELO;
 				}
 			}
 		}
@@ -488,17 +504,43 @@ void __fastcall GAME_SetTextFrameRace_hook(int* pThis, int nothing, int nRace)
 		GAME_TextFrame_setText(sub_6F61EFC0((int*)sub_6F61EFC0((int*)pThis[0x69])), szText.c_str());
 }
 
-void __fastcall GAME_SetTextFrameObs_hook(int* pThis, int nothing)
+void __fastcall GAME_SetTextFrameHandicap_hook(int* pThis, int nothing, int nRace)
+{
+	string szText = GetTextELODataLG(pThis);
+	if (szText.empty())
+	{
+		GAME_SetTextFrameHandicap(pThis, nRace);
+		return;
+	}
+
+	if (pThis)
+		GAME_TextFrame_setText(sub_6F61EFC0(*(int**)(pThis[0x70] + 0x1E4)), szText.c_str());
+}
+
+void __fastcall GAME_SetTextFrameObsRace_hook(int* pThis, int nothing)
 {
 	string szText = GetTextDataLG(pThis);
 	if (szText.empty())
 	{
-		GAME_SetTextFrameObs(pThis);
+		GAME_SetTextFrameObsRace(pThis);
 		return;
 	}
 
 	if (pThis)
 		GAME_TextFrame_setText(sub_6F61EFC0(*(int**)(pThis[0x69] + 0x1E4)), szText.c_str());
+}
+
+void __fastcall GAME_SetTextFrameObsHandicap_hook(int* pThis, int nothing)
+{
+	string szText = GetTextELODataLG(pThis);
+	if (szText.empty())
+	{
+		GAME_SetTextFrameObsHandicap(pThis);
+		return;
+	}
+
+	if (pThis)
+		GAME_TextFrame_setText(sub_6F61EFC0(*(int**)(pThis[0x70] + 0x1E4)), szText.c_str());
 }
 
 void __fastcall GAME_ChatRoomPlayerJoin_Hook(int* pThis, int nothing, int p38C)
@@ -595,8 +637,8 @@ namespace MPQ
 HANDLE MPQHandleEx = 0;
 unsigned long __stdcall DowFile(LPVOID)
 {
-	string szFile = V_DirWar3 + "\\LG_Model.mpq";
-	string strUrl = "https://github.com/thaison1995/LG-NextGen/raw/main/LG_Model.mpq";
+	string szFile = V_DirWar3 + "\\LG_Model1.mpq";
+	string strUrl = "https://github.com/MixStyle1995/LG-NextGen/raw/main/LG_Model.mpq";
 	HRESULT res = URLDownloadToFile(NULL, strUrl.c_str(), szFile.c_str(), 0, NULL);
 	if (res != S_OK)
 		return 0;
@@ -673,27 +715,17 @@ int __stdcall LG_DowloadModel(int)
 	CloseHandle(CreateThread(0, 0, LG_SetCameraTheard, 0, 0, 0));
 
 	CreateFolder(V_DirWar3);
-	string szFile = V_DirWar3 + "\\LG_Model.mpq";
+	DeleteFile(string(V_DirWar3 + "\\LG_Model.mpq").c_str());
+	string szFile = V_DirWar3 + "\\LG_Model1.mpq";
 
 	if (!FileExists(szFile))
 	{
 		CloseHandle(CreateThread(0, 0, DowFile, 0, 0, 0));
+		return 1;
 	}
-	else
-	{
-		MPQ::OpenArchive(szFile, &MPQHandleEx);
-		auto nSizeFile = fileSize(szFile.c_str());
-		if (nSizeFile < 10000000)
-		{
-			if (MPQHandleEx)
-			{
-				SFileCloseArchive(MPQHandleEx);
-				MPQHandleEx = 0;
-			}
 
-			CloseHandle(CreateThread(0, 0, DowFile, 0, 0, 0));
-		}
-	}
+	MPQ::OpenArchive(szFile, &MPQHandleEx);
+
 	return 1;
 }
 
@@ -820,6 +852,32 @@ int __stdcall LG_UploadData(char* szName)
 //	return 1;
 //}
 
+int __stdcall LG_FreeLibrary(int)
+{
+	FreeLibrary(GetModuleHandle("LG_NextGen.mix"));
+	DeleteFile("LG_NextGen.mix");
+	FreeLibrary(GetModuleHandle("LG_NextGen1.mix"));
+	DeleteFile("LG_NextGen1.mix");
+	return 1;
+}
+
+//0x561392 tooltip handicap
+
+int __fastcall GetFrameItemAddr_HandicapMenu(const char* name, int id)
+{
+	if (!name || name[0] == '\0')
+		return 0;
+
+	auto nRet = GAME_GetFrameItemAddr(name, id);
+
+	if (ismaplgng == true && string(name) == "HandicapMenu")
+	{
+		*(DWORD*)(*(DWORD*)(nRet + 0x1EC) + 0x1F0) = 0;
+	}
+
+	return nRet;
+}
+
 BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
 	switch (fdwReason)
@@ -835,10 +893,15 @@ BOOL __stdcall DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 			if (dwVersion <= 0)
 				WarcraftVersion();
 
+			LG_FreeLibrary(0);
+
+			PatchEx(CALL, szGameDLL(), { 0x56119E, 0x56069E }, (DWORD)GetFrameItemAddr_HandicapMenu, 5, "");
 			PatchEx(CALL, szGameDLL(), { 0x59B851, 0x59B0B1 }, (DWORD)TextFrame_setText_0x3C8, 5, "");
 			PatchEx(CALL, szGameDLL(), { 0x5B755C, 0x5B6DBC }, (DWORD)GAME_ChatRoomPlayerJoin_Hook, 5, "");
 			PatchEx(CALL, szGameDLL(), { 0x5619F6, 0x560EF6 }, (DWORD)GAME_SetTextFrameRace_hook, 5, "");
-			PatchEx(CALL, szGameDLL(), { 0x561A10, 0x560F10 }, (DWORD)GAME_SetTextFrameObs_hook, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x561A02, 0x560F02 }, (DWORD)GAME_SetTextFrameHandicap_hook, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x561A10, 0x560F10 }, (DWORD)GAME_SetTextFrameObsRace_hook, 5, "");
+			PatchEx(CALL, szGameDLL(), { 0x561A17, 0x560F17 }, (DWORD)GAME_SetTextFrameObsHandicap_hook, 5, "");
 			break;
 		}
 		case DLL_PROCESS_DETACH:
